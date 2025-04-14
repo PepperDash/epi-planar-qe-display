@@ -295,6 +295,7 @@ namespace PlanarQeDisplay
 						else if (responseValue.Equals("fault"))
 						{
 							// TODO [ ] add logic for fault if needed
+							Debug.Console(1, this, "ProcessResponse: {0}", responseValue);
 						}
 						break;
 					}
@@ -324,12 +325,18 @@ namespace PlanarQeDisplay
 		{
 			if (!Communication.IsConnected)
 			{
-				Debug.Console(DebugNotice, this, "SendText: device {0} connected", Communication.IsConnected ? "is" : "is not");
+				Debug.Console(DebugNotice, this, "SendText: device {0} connected", Communication.IsConnected ? "is" : "not");
+				Communication.Connect();
 				return;
 			}
 
-			if (string.IsNullOrEmpty(cmd)) return;
+			if (string.IsNullOrEmpty(cmd))
+			{
+				Debug.Console(DebugNotice, this, "SendText: cmd is null or empty");
+				return;
+			}
 
+			Debug.Console(DebugNotice, this, "SendText: cmd = {0}", cmd);
 			Communication.SendText(string.Format("{0}{1}", cmd, CmdDelimiter));
 		}
 
@@ -428,7 +435,11 @@ namespace PlanarQeDisplay
 		{
 			set
 			{
-				if (value <= 0 || value >= InputPorts.Count) return;
+				if (value <= 0 || value >= InputPorts.Count)
+				{
+					Debug.Console(DebugNotice, this, "SetInput: value <= 0 || value >= {0}", InputPorts.Count);
+					return;
+				}
 
 				Debug.Console(DebugNotice, this, "SetInput: value-'{0}'", value);
 
@@ -761,11 +772,21 @@ namespace PlanarQeDisplay
 		/// </summary>
 		public override void PowerOff()
 		{
-			if (_isWarmingUp || _isCoolingDown) return;
-
 			// power params: 0 || OFF
-			SendText("DISPLAY.POWER=OFF");
-			//PowerIsOn = false;
+			var cmd = "DISPLAY.POWER=OFF";
+
+			if (_isWarmingUp || _isCoolingDown)
+			{
+				var warmCoolWait = new CTimer(o =>
+				{
+					// do something when timer expires
+					SendText(cmd);
+				}, 15000);
+
+				return;
+			}
+			
+			SendText(cmd);
 		}
 
 		/// <summary>
