@@ -159,7 +159,7 @@ jobs:
       # Upload the build package to the release
       - name: Upload Release Package
         id: upload_release
-        uses: actions/upload-release-asset@v2
+        uses: actions/upload-release-asset@v1
         with:   
           upload_url: ${{ github.event.release.upload_url }}
           asset_path: ./${{ env.SOLUTION_FILE}}-${{ env.VERSION}}.zip
