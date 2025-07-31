@@ -2,15 +2,15 @@
 using PepperDash.Essentials.Core;
 using PepperDash.Essentials.Core.Config;
 
-namespace PlanarQeDisplay
+namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 {
-    public class PlanarQeControllerFactory:EssentialsPluginDeviceFactory<PlanarQeController>
+    public class PlanarQeControllerFactory : EssentialsPluginDeviceFactory<PlanarQeController>
     {
         public PlanarQeControllerFactory()
         {
-            TypeNames = new List<string> {"planarqe" };
+            TypeNames = new List<string> { "planarqe" };
 
-            MinimumEssentialsFrameworkVersion = "1.11.1";
+            MinimumEssentialsFrameworkVersion = "2.12.1";
         }
 
         #region Overrides of EssentialsDeviceFactory<PlanarQeController>

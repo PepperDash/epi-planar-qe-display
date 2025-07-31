@@ -4,21 +4,20 @@ using System.Linq;
 using Crestron.SimplSharp;
 using Crestron.SimplSharpPro.DeviceSupport;
 using PepperDash.Core;
+using PepperDash.Core.Logging;
 using PepperDash.Essentials.Core;
 using PepperDash.Essentials.Core.Bridges;
+using PepperDash.Essentials.Core.DeviceTypeInterfaces;
 using PepperDash.Essentials.Core.Queues;
-using PepperDash.Essentials.Core.Routing;
-using PepperDash.Essentials.Devices.Displays;
 using PepperDash.Essentials.Devices.Common.Displays;
 
-namespace PlanarQeDisplay
+namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 {
-	public class PlanarQeController : TwoWayDisplayBase, ICommunicationMonitor,
-		IInputHdmi1, IInputHdmi2, IInputHdmi3, IInputHdmi4, IInputDisplayPort1,
+	public class PlanarQeController : TwoWayDisplayBase, ICommunicationMonitor, IHasInputs<string>,
 		IBridgeAdvanced
 	{
-		private bool _isSerialComm;
-		
+		private PlanarQePropertiesConfig props;
+
 		/// <summary>
 		/// Constructor
 		/// </summary>
@@ -29,14 +28,13 @@ namespace PlanarQeDisplay
 		public PlanarQeController(string key, string name, PlanarQePropertiesConfig config, IBasicCommunication comms)
 			: base(key, name)
 		{
-			var props = config;
+			props = config;
+
 			if (props == null)
 			{
-				Debug.Console(0, this, Debug.ErrorLogLevel.Error, "{0} configuration must be included", key);
+				this.LogError("configuration must be included");
 				return;
 			}
-
-			ResetDebugLevels();
 
 			Communication = comms;
 
@@ -45,16 +43,11 @@ namespace PlanarQeDisplay
 			PortGather = new CommunicationGather(Communication, GatherDelimiter);
 			PortGather.LineReceived += PortGather_LineReceived;
 
-			var socket = Communication as ISocketStatus;
-			_isSerialComm = (socket == null);
-
 			var pollIntervalMs = props.PollIntervalMs > 45000 ? props.PollIntervalMs : 45000;
 			CommunicationMonitor = new GenericCommunicationMonitor(this, Communication, pollIntervalMs, 180000, 300000,
 				StatusGet);
 
 			CommunicationMonitor.StatusChange += CommunicationMonitor_StatusChange;
-
-			DeviceManager.AddDevice(CommunicationMonitor);
 
 			WarmupTime = props.WarmingTimeMs < 15000 ? props.WarmingTimeMs : 15000;
 			CooldownTime = props.CoolingTimeMs < 15000 ? props.CoolingTimeMs : 15000;
@@ -77,10 +70,7 @@ namespace PlanarQeDisplay
 			var joinMap = new PlanarQeBridgeJoinMap(joinStart);
 
 			// This adds the join map to the collection on the bridge
-			if (bridge != null)
-			{
-				bridge.AddJoinMap(Key, joinMap);
-			}
+			bridge?.AddJoinMap(Key, joinMap);
 
 			var customJoins = JoinMapHelper.TryGetJoinMapAdvancedForDevice(joinMapKey);
 			if (customJoins != null)
@@ -88,8 +78,8 @@ namespace PlanarQeDisplay
 				joinMap.SetCustomJoinData(customJoins);
 			}
 
-			Debug.Console(0, this, "Linking to Trilist '{0}'", trilist.ID.ToString("X"));
-			Debug.Console(0, this, "Linking to Bridge Type {0}", GetType().Name);
+			this.LogInformation("Linking to Trilist '{0}'", trilist.ID.ToString("X"));
+			this.LogInformation("Linking to Bridge Type {0}", GetType().Name);
 
 			// links to bridge
 			// device name
@@ -98,10 +88,7 @@ namespace PlanarQeDisplay
 			//var twoWayDisplay = this as TwoWayDisplayBase;
 			//trilist.SetBool(joinMap.IsTwoWayDisplay.JoinNumber, twoWayDisplay != null);
 
-			if (CommunicationMonitor != null)
-			{
-				CommunicationMonitor.IsOnlineFeedback.LinkInputSig(trilist.BooleanInput[joinMap.IsOnline.JoinNumber]);
-			}
+			CommunicationMonitor?.IsOnlineFeedback.LinkInputSig(trilist.BooleanInput[joinMap.IsOnline.JoinNumber]);
 
 			// power off
 			trilist.SetSigTrueAction(joinMap.PowerOff.JoinNumber, PowerOff);
@@ -121,10 +108,10 @@ namespace PlanarQeDisplay
 
 				trilist.SetSigTrueAction((ushort)(joinMap.InputSelectOffset.JoinNumber + inputIndex), () =>
 				{
-					Debug.Console(DebugVerbose, this, "InputSelect Digital-'{0}'", inputIndex + 1);
+					this.LogVerbose("InputSelect Digital-'{0}'", inputIndex + 1);
 					SetInput = inputIndex + 1;
 				});
-                Debug.Console(2, this, "Setting Input Select Action on Digital Join {0} to Input: {1}", joinMap.InputSelectOffset.JoinNumber + inputIndex, this.InputPorts[input.Key.ToString()].Key.ToString());
+				this.LogVerbose("Setting Input Select Action on Digital Join {0} to Input: {1}", joinMap.InputSelectOffset.JoinNumber + inputIndex, this.InputPorts[input.Key.ToString()].Key.ToString());
 
 				trilist.StringInput[(ushort)(joinMap.InputNamesOffset.JoinNumber + inputIndex)].StringValue = string.IsNullOrEmpty(input.Key) ? string.Empty : input.Key;
 
@@ -134,16 +121,15 @@ namespace PlanarQeDisplay
 			// input (analog select)
 			trilist.SetUShortSigAction(joinMap.InputSelect.JoinNumber, analogValue =>
 			{
-				Debug.Console(DebugNotice, this, "InputSelect Analog-'{0}'", analogValue);
+				this.LogVerbose("InputSelect Analog-'{0}'", analogValue);
 				SetInput = analogValue;
 			});
 
 			// input (analog feedback)
-			if (CurrentInputNumberFeedback != null)
-				CurrentInputNumberFeedback.LinkInputSig(trilist.UShortInput[joinMap.InputSelect.JoinNumber]);
+			CurrentInputNumberFeedback?.LinkInputSig(trilist.UShortInput[joinMap.InputSelect.JoinNumber]);
 
-			if(CurrentInputFeedback != null)
-				CurrentInputFeedback.OutputChange += (sender, args) => Debug.Console(DebugNotice, this, "CurrentInputFeedback: {0}", args.StringValue);
+			if (CurrentInputFeedback != null)
+				CurrentInputFeedback.OutputChange += (sender, args) => this.LogInformation("CurrentInputFeedback: {0}", args.StringValue);
 
 			// bridge online change
 			trilist.OnlineStatusChange += (sender, args) =>
@@ -152,20 +138,17 @@ namespace PlanarQeDisplay
 
 				// device name
 				trilist.SetString(joinMap.Name.JoinNumber, Name);
-				
+
 				PowerIsOnFeedback.FireUpdate();
 
-				if(CurrentInputFeedback != null)
-					CurrentInputFeedback.FireUpdate();
-				
-				if(CurrentInputNumberFeedback != null)
-					CurrentInputNumberFeedback.FireUpdate();
+				CurrentInputFeedback?.FireUpdate();
+
+				CurrentInputNumberFeedback?.FireUpdate();
 
 				for (var i = 0; i < InputPorts.Count; i++)
 				{
 					var inputIndex = i;
-					if(InputFeedback != null)
-						InputFeedback[inputIndex].FireUpdate();
+					InputFeedback?[inputIndex].FireUpdate();
 				}
 			};
 		}
@@ -220,26 +203,25 @@ namespace PlanarQeDisplay
 		{
 			if (args == null)
 			{
-				Debug.Console(DebugNotice, this, "PortGather_LineReceived: args are null");
+				this.LogWarning("PortGather_LineReceived: args are null");
 				return;
 			}
 
 			if (string.IsNullOrEmpty(args.Text))
 			{
-				Debug.Console(DebugNotice, this, "PortGather_LineReceived: args.Text is null or empty");
+				this.LogWarning("PortGather_LineReceived: args.Text is null or empty");
 				return;
 			}
 
 			try
 			{
-				Debug.Console(DebugVerbose, this, "PortGather_LineReceived: args.Text-'{0}'", args.Text);
+				this.LogVerbose("PortGather_LineReceived: args.Text-'{0}'", args.Text);
 				_receiveQueue.Enqueue(new ProcessStringMessage(args.Text, ProcessResponse));
 			}
 			catch (Exception ex)
 			{
-				Debug.Console(DebugNotice, this, Debug.ErrorLogLevel.Error, "HandleLineReceived Exception Message: {0}", ex.Message);
-				Debug.Console(DebugVerbose, this, Debug.ErrorLogLevel.Error, "HandleLineRecieved Exception Stack Trace: {0}", ex.StackTrace);
-				if (ex.InnerException != null) Debug.Console(DebugNotice, this, Debug.ErrorLogLevel.Error, "HandleLineReceived Inner Exception: '{0}'", ex.InnerException);
+				this.LogError("HandleLineReceived Exception Message: {message}", ex.Message);
+				this.LogVerbose(ex, "HandleLineReceived Exception");
 			}
 		}
 
@@ -247,11 +229,11 @@ namespace PlanarQeDisplay
 		{
 			if (string.IsNullOrEmpty(response)) return;
 
-			Debug.Console(DebugNotice, this, "ProcessResponse: {0}", response);
+			this.LogDebug("ProcessResponse: {0}", response);
 
 			if (!response.Contains(":") || response.Contains("ERR"))
 			{
-				Debug.Console(DebugVerbose, this, "ProcessResponse: '{0}' is not tracked", response);
+				this.LogVerbose("ProcessResponse: '{response}' is not tracked", response);
 				return;
 			}
 
@@ -259,7 +241,7 @@ namespace PlanarQeDisplay
 			var responseType = string.IsNullOrEmpty(responseData[0]) ? "" : responseData[0];
 			var responseValue = string.IsNullOrEmpty(responseData[1]) ? "" : responseData[1];
 
-			Debug.Console(DebugVerbose, this, "ProcessResponse: responseType-'{0}', responseValue-'{1}'", responseType, responseValue);
+			this.LogVerbose("ProcessResponse: {responseType}, {responseValue}", responseType, responseValue);
 
 			switch (responseType)
 			{
@@ -269,7 +251,7 @@ namespace PlanarQeDisplay
 						{
 							_isCoolingDown = false;
 							_isWarmingUp = true;
-							
+
 							PowerIsOn = true;
 						}
 						else if (responseValue.Equals("powering.down"))
@@ -283,7 +265,7 @@ namespace PlanarQeDisplay
 						{
 							_isCoolingDown = false;
 							_isWarmingUp = false;
-							
+
 							PowerIsOn = true;
 						}
 						else if (responseValue.Equals("standby"))
@@ -311,7 +293,7 @@ namespace PlanarQeDisplay
 					}
 				default:
 					{
-						Debug.Console(DebugNotice, this, "ProcessRespopnse: unknown response '{0}'", responseType);
+						this.LogDebug("ProcessResponse: unknown response '{0}'", responseType);
 						break;
 					}
 			}
@@ -325,7 +307,7 @@ namespace PlanarQeDisplay
 		{
 			if (!Communication.IsConnected)
 			{
-				Debug.Console(DebugNotice, this, "SendText: device {0} connected", Communication.IsConnected ? "is" : "is not");
+				this.LogDebug("SendText: device connected: {status}", Communication.IsConnected);
 				return;
 			}
 
@@ -342,28 +324,26 @@ namespace PlanarQeDisplay
 		{
 			if (PowerIsOn)
 			{
-				var action = selector as Action;
-				if (action != null)
+				if (selector is Action action)
 				{
 					action();
 				}
 			}
 			else // if power is off, wait until we get on FB to send it. 
 			{
-				// One-time event handler to wait for power on before executing switch
-				EventHandler<FeedbackEventArgs> handler = null; // necessary to allow reference inside lambda to handler
-				handler = (o, a) =>
+				// One-time local function to wait for power on before executing switch
+				void handler(object o, FeedbackEventArgs a)
 				{
 					if (IsWarmingUp) return;
 
 					IsWarmingUpFeedback.OutputChange -= handler;
 
-					var action = selector as Action;
-					if (action != null)
+					if (selector is Action action)
 					{
 						action();
 					}
-				};
+				} // necessary to allow reference inside lambda to handler
+
 				IsWarmingUpFeedback.OutputChange += handler; // attach and wait for on FB
 				PowerOn();
 			}
@@ -431,17 +411,17 @@ namespace PlanarQeDisplay
 			{
 				if (value <= 0 || value >= InputPorts.Count) return;
 
-				Debug.Console(DebugNotice, this, "SetInput: value-'{0}'", value);
+				this.LogInformation("SetInput: value-'{0}'", value);
 
 				// -1 to get actual input in list after 0d check
 				var port = GetInputPort(value - 1);
 				if (port == null)
 				{
-					Debug.Console(DebugNotice, this, "SetInput: failed to get input port");
+					this.LogWarning("SetInput: failed to get input port");
 					return;
 				}
 
-				Debug.Console(DebugVerbose, this, "SetInput: port.key-'{0}', port.Selector-'{1}', port.ConnectionType-'{2}', port.FeebackMatchObject-'{3}'",
+				this.LogDebug("SetInput: port.key-'{0}', port.Selector-'{1}', port.ConnectionType-'{2}', port.FeedbackMatchObject-'{3}'",
 					port.Key, port.Selector, port.ConnectionType, port.FeedbackMatchObject);
 
 				ExecuteSwitch(port.Selector);
@@ -462,6 +442,11 @@ namespace PlanarQeDisplay
 
 		private void InitializeInputs()
 		{
+			if (props.SupportsUsb)
+			{
+				AddRoutingInputPort(new RoutingInputPort("Usb", eRoutingSignalType.UsbInput | eRoutingSignalType.UsbOutput, eRoutingPortConnectionType.UsbC, null, this), null);
+			}
+
 			AddRoutingInputPort(
 				new RoutingInputPort(RoutingPortNames.HdmiIn1, eRoutingSignalType.Audio | eRoutingSignalType.Video,
 					eRoutingPortConnectionType.Hdmi, new Action(InputHdmi1), this), "hdmi.1");
@@ -498,21 +483,22 @@ namespace PlanarQeDisplay
 
 			CurrentInputNumberFeedback = new IntFeedback(() =>
 			{
-				Debug.Console(DebugVerbose, this, "InputNumberFeedback: CurrentInputNumber-'{0}'", CurrentInputNumber);
+				this.LogDebug("InputNumberFeedback: CurrentInputNumber-'{0}'", CurrentInputNumber);
 				return CurrentInputNumber;
 			});
-		}
 
-		/// <summary>
-		/// Lists available input routing ports
-		/// </summary>
-		public void ListRoutingInputPorts()
-		{
-			foreach (var inputPort in InputPorts)
+			Inputs = new PlanarQeInputs
 			{
-				Debug.Console(0, this, "ListRoutingInputPorts: key-'{0}', connectionType-'{1}', feedbackMatchObject-'{2}'",
-					inputPort.Key, inputPort.ConnectionType, inputPort.FeedbackMatchObject);
-			}
+				Items = new Dictionary<string, ISelectableItem>()
+				{
+					{"hdmiIn1", new PlanarQeInput("hdmiIn1", "HDMI 1", InputHdmi1) },
+					{"hdmiIn2", new PlanarQeInput("hdmiIn2", "HDMI 2", InputHdmi2) },
+					{"hdmiIn3", new PlanarQeInput("hdmiIn3", "HDMI 3", InputHdmi3) },
+					{"hdmiIn4", new PlanarQeInput("hdmiIn4", "HDMI 4", InputHdmi4) },
+					{"displayPortIn1", new PlanarQeInput("displayPortIn1", "DisplayPort 1", InputDisplayPort1) },
+					{"ipcOps", new PlanarQeInput("ipcOps", "OPS", InputOps) }
+				}
+			};
 		}
 
 		/// <summary>
@@ -539,7 +525,7 @@ namespace PlanarQeDisplay
 			SendText("SOURCE.SELECT=HDMI.3");
 		}
 
-		
+
 		/// <summary>
 		/// Select Hdmi 4 (id-4)
 		/// </summary>
@@ -563,7 +549,7 @@ namespace PlanarQeDisplay
 		{
 			SendText("SOURCE.SELECT=OPS");
 		}
-		
+
 		/// <summary>
 		/// Toggles the display input
 		/// </summary>
@@ -590,18 +576,29 @@ namespace PlanarQeDisplay
 			if (newInput == null) return;
 			if (newInput == _currentInputPort)
 			{
-				Debug.Console(DebugNotice, this, "UpdateInputFb: _currentInputPort-'{0}' == newInput-'{1}'", _currentInputPort.Key, newInput.Key);
+				this.LogDebug("UpdateInputFb: _currentInputPort-'{0}' == newInput-'{1}'", _currentInputPort.Key, newInput.Key);
 				return;
 			}
 
-			Debug.Console(DebugNotice, this, "UpdateInputFb: newInput key-'{0}', connectionType-'{1}', feedbackMatchObject-'{2}'",
+			this.LogDebug("UpdateInputFb: newInput key-'{0}', connectionType-'{1}', feedbackMatchObject-'{2}'",
 				newInput.Key, newInput.ConnectionType, newInput.FeedbackMatchObject);
 
 			_currentInputPort = newInput;
 			CurrentInputFeedback.FireUpdate();
 
 			var key = newInput.Key;
-			Debug.Console(DebugNotice, this, "UpdateInputFb: key-'{0}'", key);
+			this.LogDebug("UpdateInputFb: key-'{0}'", key);
+
+			if (Inputs.Items.TryGetValue(key, out var item))
+			{
+				Inputs.CurrentItem = key;
+				item.IsSelected = true;
+			}
+			else
+			{
+				this.LogWarning("UpdateInputFb: key '{0}' not found in Inputs.Items", key);
+			}
+
 			switch (key)
 			{
 				// TODO [ ] verify key names for accuracy
@@ -651,9 +648,10 @@ namespace PlanarQeDisplay
 					update.FireUpdate();
 				}
 			}
-			catch (Exception e)
+			catch (Exception ex)
 			{
-				Debug.Console(DebugTrace, this, "{0}", e.Message);
+				this.LogError("{0}", ex.Message);
+				this.LogVerbose(ex, "UpdateBooleanFeedback Exception");
 			}
 		}
 
@@ -745,6 +743,8 @@ namespace PlanarQeDisplay
 			get { return () => IsWarmingUp; }
 		}
 
+		public ISelectableItems<string> Inputs { get; set; }
+
 		/// <summary>
 		/// Set Power On For Device
 		/// </summary>
@@ -805,43 +805,10 @@ namespace PlanarQeDisplay
 			SendText("SYSTEM.STATE?");
 
 			if (!PowerIsOn) return;
-			
+
 			CrestronEnvironment.Sleep(2000);
-			
+
 			InputGet();
 		}
-
-
-		#region DebugLevels
-
-		private uint DebugTrace { get; set; }
-		private uint DebugNotice { get; set; }
-		private uint DebugVerbose { get; set; }
-
-		/// <summary>
-		/// Initializes and resets debug levels to default
-		/// </summary>
-		public void ResetDebugLevels()
-		{
-			DebugTrace = 0;
-			DebugNotice = 1;
-			DebugVerbose = 2;
-		}
-
-		/// <summary>
-		/// Sets debug levels to value passed in
-		/// </summary>
-		/// <param name="level"></param>
-		public void SetDebugLevels(uint level)
-		{
-			if (level > 2) return;
-
-			DebugTrace = level;
-			DebugNotice = level;
-			DebugVerbose = level;
-		}
-
-		#endregion
-
 	}
 }
