@@ -478,10 +478,10 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 			for (var i = 0; i < InputPorts.Count; i++)
 			{
 				var input = i + 1;
-				InputFeedback.Add(new BoolFeedback(() => CurrentInputNumber == input));
+				InputFeedback.Add(new BoolFeedback($"input.{input}", () => CurrentInputNumber == input));
 			}
 
-			CurrentInputNumberFeedback = new IntFeedback(() =>
+			CurrentInputNumberFeedback = new IntFeedback("currentInput", () =>
 			{
 				this.LogDebug("InputNumberFeedback: CurrentInputNumber-'{0}'", CurrentInputNumber);
 				return CurrentInputNumber;
