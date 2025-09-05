@@ -572,7 +572,16 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		/// <param name="s">response from device</param>
 		public void UpdateInputFb(string s)
 		{
-			var newInput = InputPorts.FirstOrDefault(i => i.FeedbackMatchObject.Equals(s.ToLower()));
+			if (string.IsNullOrEmpty(s))
+			{
+				this.LogWarning("UpdateInputFb: response is null or empty");
+				return;
+			}
+
+			this.LogDebug("UpdateInputFb: response-'{s}'", s);
+
+			var newInput = InputPorts.FirstOrDefault(i => i.FeedbackMatchObject != null && i.FeedbackMatchObject.Equals(s.ToLower()));
+
 			if (newInput == null) return;
 			if (newInput == _currentInputPort)
 			{
