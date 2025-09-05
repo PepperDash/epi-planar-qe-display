@@ -36,7 +36,7 @@
 		<None Remove="epi-planar-qe-display.projectinfo" />
 	</ItemGroup>
 	<ItemGroup>
-		<PackageReference Include="PepperDashEssentials" Version="2.1.0" >
+		<PackageReference Include="PepperDashEssentials" Version="2.12.1" >
 			<ExcludeAssets>runtime</ExcludeAssets>
 		</PackageReference>	</ItemGroup>
 </Project>
