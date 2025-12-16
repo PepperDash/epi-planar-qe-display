@@ -14,7 +14,7 @@ using PepperDash.Essentials.Devices.Common.Displays;
 namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 {
 	public class PlanarQeController : TwoWayDisplayBase, ICommunicationMonitor, IHasInputs<string>,
-		IBridgeAdvanced
+		IBridgeAdvanced, IRoutingSinkWithSwitchingWithInputPort
 	{
 		private PlanarQePropertiesConfig props;
 
@@ -578,25 +578,19 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				return;
 			}
 
-			this.LogDebug("UpdateInputFb: response-'{s}'", s);
-
 			var newInput = InputPorts.FirstOrDefault(i => i.FeedbackMatchObject != null && i.FeedbackMatchObject.Equals(s.ToLower()));
 
 			if (newInput == null) return;
-			if (newInput == _currentInputPort)
+			if (newInput == CurrentInputPort)
 			{
-				this.LogDebug("UpdateInputFb: _currentInputPort-'{0}' == newInput-'{1}'", _currentInputPort.Key, newInput.Key);
+				this.LogDebug("UpdateInputFb: CurrentInputPort-'{0}' == newInput-'{1}'", CurrentInputPort.Key, newInput.Key);
 				return;
 			}
 
-			this.LogDebug("UpdateInputFb: newInput key-'{0}', connectionType-'{1}', feedbackMatchObject-'{2}'",
-				newInput.Key, newInput.ConnectionType, newInput.FeedbackMatchObject);
-
-			_currentInputPort = newInput;
+			CurrentInputPort = newInput;
 			CurrentInputFeedback.FireUpdate();
 
 			var key = newInput.Key;
-			this.LogDebug("UpdateInputFb: key-'{0}'", key);
 
 			if (Inputs.Items.TryGetValue(key, out var item))
 			{
@@ -605,7 +599,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 			}
 			else
 			{
-				this.LogWarning("UpdateInputFb: key '{0}' not found in Inputs.Items", key);
+				this.LogWarning("key '{0}' not found in Inputs.Items", key);
 			}
 
 			switch (key)
