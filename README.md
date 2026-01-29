@@ -103,3 +103,78 @@ UltraRes L Series
 | 1           | 1        | Name                   | Name                     | Serial        | ToSIMPL      |
 | 11          | 10       | InputNamesOffset       | Input Names Offset       | Serial        | ToSIMPL      |
 | 41          | 10       | ButtonVisibilityOffset | Button Visibility Offset | DigitalSerial | ToFromSIMPL  |
+<!-- START Minimum Essentials Framework Versions -->
+### Minimum Essentials Framework Versions
+
+- 2.12.1
+<!-- END Minimum Essentials Framework Versions -->
+<!-- START Config Example -->
+### Config Example
+
+```json
+{
+    "key": "GeneratedKey",
+    "uid": 1,
+    "name": "GeneratedName",
+    "type": "PlanarQeProperties",
+    "group": "Group",
+    "properties": {
+        "pollIntervalMs": 0,
+        "coolingTimeMs": "SampleValue",
+        "warmingTimeMs": "SampleValue",
+        "supportsUsb": true
+    }
+}
+```
+<!-- END Config Example -->
+<!-- START Supported Types -->
+
+<!-- END Supported Types -->
+<!-- START Join Maps -->
+
+<!-- END Join Maps -->
+<!-- START Interfaces Implemented -->
+### Interfaces Implemented
+
+- ISelectableItem
+- ISelectableItems<string>
+- ICommunicationMonitor
+- IHasInputs<string>
+- IBridgeAdvanced
+- IRoutingSinkWithSwitchingWithInputPort
+<!-- END Interfaces Implemented -->
+<!-- START Base Classes -->
+### Base Classes
+
+- TwoWayDisplayBase
+- DisplayControllerJoinMap
+<!-- END Base Classes -->
+<!-- START Public Methods -->
+### Public Methods
+
+- public void Select()
+- public void LinkToApi(BasicTriList trilist, uint joinStart, string joinMapKey, EiscApiAdvanced bridge)
+- public void SendText(string cmd)
+- public void InputHdmi1()
+- public void InputHdmi2()
+- public void InputHdmi3()
+- public void InputHdmi4()
+- public void InputDisplayPort1()
+- public void InputOps()
+- public void InputToggle()
+- public void InputGet()
+- public void UpdateInputFb(string s)
+- public void PowerGet()
+- public void StatusGet()
+<!-- END Public Methods -->
+<!-- START Bool Feedbacks -->
+
+<!-- END Bool Feedbacks -->
+<!-- START Int Feedbacks -->
+### Int Feedbacks
+
+- CurrentInputNumberFeedback
+<!-- END Int Feedbacks -->
+<!-- START String Feedbacks -->
+
+<!-- END String Feedbacks -->
