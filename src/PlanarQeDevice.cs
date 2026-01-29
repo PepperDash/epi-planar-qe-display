@@ -450,7 +450,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		{
 			if (props.SupportsUsb)
 			{
-				AddRoutingInputPort(new RoutingInputPort("Usb", eRoutingSignalType.UsbInput | eRoutingSignalType.UsbOutput, eRoutingPortConnectionType.UsbC, null, this), "usb");
+				AddRoutingInputPort(new RoutingInputPort("usb", eRoutingSignalType.UsbInput | eRoutingSignalType.UsbOutput, eRoutingPortConnectionType.UsbC, null, this), "usb");
 			}
 
 			AddRoutingInputPort(
