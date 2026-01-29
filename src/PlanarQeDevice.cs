@@ -322,6 +322,12 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		/// <param name="selector"></param>
 		public override void ExecuteSwitch(object selector)
 		{
+			if (selector is null)
+			{
+				this.LogDebug("ExecuteSwitch: selector is null (no-op for USB input)");
+				return;
+			}
+
 			if (PowerIsOn)
 			{
 				if (selector is Action action)
@@ -444,7 +450,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		{
 			if (props.SupportsUsb)
 			{
-				AddRoutingInputPort(new RoutingInputPort("Usb", eRoutingSignalType.UsbInput | eRoutingSignalType.UsbOutput, eRoutingPortConnectionType.UsbC, null, this), null);
+				AddRoutingInputPort(new RoutingInputPort("usb", eRoutingSignalType.UsbInput | eRoutingSignalType.UsbOutput, eRoutingPortConnectionType.UsbC, null, this), "usb");
 			}
 
 			AddRoutingInputPort(
@@ -491,6 +497,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 			{
 				Items = new Dictionary<string, ISelectableItem>()
 				{
+					{"usb", new PlanarQeInput("usb", "USB", () => { }) },
 					{"hdmiIn1", new PlanarQeInput("hdmiIn1", "HDMI 1", InputHdmi1) },
 					{"hdmiIn2", new PlanarQeInput("hdmiIn2", "HDMI 2", InputHdmi2) },
 					{"hdmiIn3", new PlanarQeInput("hdmiIn3", "HDMI 3", InputHdmi3) },
@@ -605,23 +612,26 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 			switch (key)
 			{
 				// TODO [ ] verify key names for accuracy
-				case "hdmiIn1":
+				case "usb":
 					CurrentInputNumber = 1;
 					break;
+				case "hdmiIn1":
+					CurrentInputNumber = props.SupportsUsb ? 2 : 1;
+					break;
 				case "hdmiIn2":
-					CurrentInputNumber = 2;
+					CurrentInputNumber = props.SupportsUsb ? 3 : 2;
 					break;
 				case "hdmiIn3":
-					CurrentInputNumber = 3;
+					CurrentInputNumber = props.SupportsUsb ? 4 : 3;
 					break;
 				case "hdmiIn4":
-					CurrentInputNumber = 4;
+					CurrentInputNumber = props.SupportsUsb ? 5 : 4;
 					break;
 				case "displayPortIn1":
-					CurrentInputNumber = 5;
+					CurrentInputNumber = props.SupportsUsb ? 6 : 5;
 					break;
 				case "ipcOps":
-					CurrentInputNumber = 6;
+					CurrentInputNumber = props.SupportsUsb ? 7 : 6;
 					break;
 			}
 		}
