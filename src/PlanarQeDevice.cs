@@ -145,6 +145,8 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 				CurrentInputNumberFeedback?.FireUpdate();
 
+				CurrentInputValueFeedback?.FireUpdate();
+
 				for (var i = 0; i < InputPorts.Count; i++)
 				{
 					var inputIndex = i;
@@ -382,7 +384,18 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		/// </summary>
 		public IntFeedback CurrentInputNumberFeedback;
 
+		/// <summary>
+		/// Current input value (port key) feedback
+		/// </summary>
+		public StringFeedback CurrentInputValueFeedback;
+
 		private RoutingInputPort _currentInputPort;
+
+		public new RoutingInputPort CurrentInputPort
+		{
+			get { return _currentInputPort; }
+			private set { _currentInputPort = value; }
+		}
 
 		protected override Func<string> CurrentInputFeedbackFunc
 		{
@@ -484,6 +497,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 			for (var i = 0; i < InputPorts.Count; i++)
 			{
 				var input = i + 1;
+				_inputFeedback.Add(false);
 				InputFeedback.Add(new BoolFeedback($"input.{input}", () => CurrentInputNumber == input));
 			}
 
@@ -491,6 +505,12 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 			{
 				this.LogDebug("InputNumberFeedback: CurrentInputNumber-'{0}'", CurrentInputNumber);
 				return CurrentInputNumber;
+			});
+
+			CurrentInputValueFeedback = new StringFeedback("currentInputValue", () =>
+			{
+				this.LogDebug("CurrentInputValueFeedback: CurrentInputPort-'{0}'", _currentInputPort?.Key ?? "null");
+				return _currentInputPort?.Key ?? string.Empty;
 			});
 
 			Inputs = new PlanarQeInputs
@@ -596,11 +616,19 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 			CurrentInputPort = newInput;
 			CurrentInputFeedback.FireUpdate();
+			CurrentInputValueFeedback.FireUpdate();
 
 			var key = newInput.Key;
 
 			if (Inputs.Items.TryGetValue(key, out var item))
 			{
+				// Clear selection from all other items
+				foreach (var inputItem in Inputs.Items.Values)
+				{
+					inputItem.IsSelected = false;
+				}
+
+				// Set selection on the new item
 				Inputs.CurrentItem = key;
 				item.IsSelected = true;
 			}
@@ -644,17 +672,29 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		{
 			try
 			{
-				if (_inputFeedback[data])
+				// data is 1-based, convert to 0-based for list access
+				int index = data - 1;
+
+				if (index < 0 || index >= _inputFeedback.Count)
+				{
+					this.LogWarning("UpdateBooleanFeedback: index out of range. data='{0}', index='{1}', count='{2}'", data, index, _inputFeedback.Count);
+					return;
+				}
+
+				if (_inputFeedback[index])
 				{
 					return;
 				}
 
-				for (var i = 1; i < InputPorts.Count + 1; i++)
+				// Clear all feedback
+				for (var i = 0; i < _inputFeedback.Count; i++)
 				{
 					_inputFeedback[i] = false;
 				}
 
-				_inputFeedback[data] = true;
+				// Set the current input
+				_inputFeedback[index] = true;
+
 				foreach (var item in InputFeedback)
 				{
 					var update = item;
