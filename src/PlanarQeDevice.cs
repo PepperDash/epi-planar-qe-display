@@ -231,11 +231,22 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		{
 			if (string.IsNullOrEmpty(response)) return;
 
+			response = response.Trim();
+
+			if (string.IsNullOrEmpty(response)) return;
+
 			this.LogDebug("ProcessResponse: {0}", response);
+
+			// Lines containing '=' or '?' are echoes of sent commands; ignore them
+			if (response.Contains("=") || response.Contains("?"))
+			{
+				this.LogVerbose("ProcessResponse: ignoring echo '{0}'", response);
+				return;
+			}
 
 			if (!response.Contains(":") || response.Contains("ERR"))
 			{
-				this.LogVerbose("ProcessResponse: '{response}' is not tracked", response);
+				this.LogDebug("ProcessResponse: '{response}' is not tracked", response);
 				return;
 			}
 
