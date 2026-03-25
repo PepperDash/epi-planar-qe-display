@@ -246,7 +246,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 			if (!response.Contains(":") || response.Contains("ERR"))
 			{
-				this.LogDebug("ProcessResponse: '{response}' is not tracked", response);
+				this.LogVerbose("ProcessResponse: '{response}' is not tracked", response);
 				return;
 			}
 
@@ -498,6 +498,14 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 					eRoutingPortConnectionType.DisplayPort, new Action(InputDisplayPort1), this), "dp");
 
 			AddRoutingInputPort(
+				new RoutingInputPort(RoutingPortNames.DisplayPortIn2, eRoutingSignalType.Audio | eRoutingSignalType.Video,
+					eRoutingPortConnectionType.DisplayPort, new Action(InputDisplayPort2), this), "dp.2");
+
+			AddRoutingInputPort(
+				new RoutingInputPort("usbcIn1", eRoutingSignalType.Audio | eRoutingSignalType.Video,
+					eRoutingPortConnectionType.UsbC, new Action(InputUsbC), this), "usbc");
+
+			AddRoutingInputPort(
 				new RoutingInputPort(RoutingPortNames.IpcOps, eRoutingSignalType.Audio | eRoutingSignalType.Video,
 					eRoutingPortConnectionType.None, new Action(InputOps), this), "ops");
 
@@ -524,19 +532,50 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				return _currentInputPort?.Key ?? string.Empty;
 			});
 
-			Inputs = new PlanarQeInputs
+			if (props.ActiveInputs != null && props.ActiveInputs.Count > 0)
 			{
-				Items = new Dictionary<string, ISelectableItem>()
+				var allInputs = new Dictionary<string, Action>
 				{
-					{"usb", new PlanarQeInput("usb", "USB", () => { }) },
-					{"hdmiIn1", new PlanarQeInput("hdmiIn1", "HDMI 1", InputHdmi1) },
-					{"hdmiIn2", new PlanarQeInput("hdmiIn2", "HDMI 2", InputHdmi2) },
-					{"hdmiIn3", new PlanarQeInput("hdmiIn3", "HDMI 3", InputHdmi3) },
-					{"hdmiIn4", new PlanarQeInput("hdmiIn4", "HDMI 4", InputHdmi4) },
-					{"displayPortIn1", new PlanarQeInput("displayPortIn1", "DisplayPort 1", InputDisplayPort1) },
-					{"ipcOps", new PlanarQeInput("ipcOps", "OPS", InputOps) }
+					{ "usb", () => { } },
+					{ "hdmiIn1", InputHdmi1 },
+					{ "hdmiIn2", InputHdmi2 },
+					{ "hdmiIn3", InputHdmi3 },
+					{ "hdmiIn4", InputHdmi4 },
+					{ "displayPortIn1", InputDisplayPort1 },
+					{ "displayPortIn2", InputDisplayPort2 },
+					{ "usbcIn1", InputUsbC },
+					{ "ipcOps", InputOps },
+				};
+
+				var items = new Dictionary<string, ISelectableItem>();
+				foreach (var inputConfig in props.ActiveInputs)
+				{
+					if (!allInputs.TryGetValue(inputConfig.Key, out var action))
+					{
+						this.LogWarning("InitializeInputs: input key '{0}' is not a recognized input", inputConfig.Key);
+						continue;
+					}
+					items[inputConfig.Key] = new PlanarQeInput(inputConfig.Key, inputConfig.Name, action);
 				}
-			};
+
+				Inputs = new PlanarQeInputs { Items = items };
+			}
+			else
+			{
+				Inputs = new PlanarQeInputs
+				{
+					Items = new Dictionary<string, ISelectableItem>()
+					{
+						{ "usb", new PlanarQeInput("usb", "USB", () => { }) },
+						{ "hdmiIn1", new PlanarQeInput("hdmiIn1", "HDMI 1", InputHdmi1) },
+						{ "hdmiIn2", new PlanarQeInput("hdmiIn2", "HDMI 2", InputHdmi2) },
+						{ "hdmiIn3", new PlanarQeInput("hdmiIn3", "HDMI 3", InputHdmi3) },
+						{ "hdmiIn4", new PlanarQeInput("hdmiIn4", "HDMI 4", InputHdmi4) },
+						{ "displayPortIn1", new PlanarQeInput("displayPortIn1", "DisplayPort 1", InputDisplayPort1) },
+						{ "ipcOps", new PlanarQeInput("ipcOps", "OPS", InputOps) }
+					}
+				};
+			}
 		}
 
 		/// <summary>
@@ -578,6 +617,22 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		public void InputDisplayPort1()
 		{
 			SendText("SOURCE.SELECT=DP");
+		}
+
+		/// <summary>
+		/// Select Display Port 2(id-6)
+		/// </summary>
+		public void InputDisplayPort2()
+		{
+			SendText("SOURCE.SELECT=DP.2");
+		}
+
+		/// <summary>
+		/// Select USB-C (id-7)
+		/// </summary>
+		public void InputUsbC()
+		{
+			SendText("SOURCE.SELECT=USBC");
 		}
 
 		/// <summary>
@@ -669,8 +724,14 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				case "displayPortIn1":
 					CurrentInputNumber = props.SupportsUsb ? 6 : 5;
 					break;
-				case "ipcOps":
+				case "displayPortIn2":
 					CurrentInputNumber = props.SupportsUsb ? 7 : 6;
+					break;
+				case "usbcIn1":
+					CurrentInputNumber = props.SupportsUsb ? 8 : 7;
+					break;
+				case "ipcOps":
+					CurrentInputNumber = props.SupportsUsb ? 9 : 8;
 					break;
 			}
 		}
