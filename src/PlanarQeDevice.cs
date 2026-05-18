@@ -205,11 +205,11 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		{
 			CommunicationMonitor.IsOnlineFeedback.FireUpdate();
 
-			// Query current input state when device comes online to populate CurrentInputPort
+			// Query current input state when status changes to populate CurrentInputPort
 			// This ensures the state check in SetInput works correctly immediately after connection
-			if (args.DeviceOnLine && Communication.IsConnected)
+			if (Communication.IsConnected)
 			{
-				this.LogInformation("Device online, querying current input state");
+				this.LogInformation("Communication status changed, querying current input state");
 				InputGet();
 			}
 		}
