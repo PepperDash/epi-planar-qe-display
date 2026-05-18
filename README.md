@@ -103,3 +103,29 @@ UltraRes L Series
 | 1           | 1        | Name                   | Name                     | Serial        | ToSIMPL      |
 | 11          | 10       | InputNamesOffset       | Input Names Offset       | Serial        | ToSIMPL      |
 | 41          | 10       | ButtonVisibilityOffset | Button Visibility Offset | DigitalSerial | ToFromSIMPL  |
+
+## Features
+
+### Input State-Aware Switching
+This plugin implements intelligent input switching that prevents redundant commands from being sent to the display. 
+
+**How it works:**
+- The plugin tracks the current input state using device feedback responses
+- Before sending an input selection command, it checks if the display is already on the requested input
+- If the input is already selected, the command is skipped (no duplicate `SOURCE.SELECT` sent)
+- On initialization and when the device comes online, the current input is queried to populate the state cache
+
+**Benefits:**
+- ✅ Eliminates video flicker caused by redundant HDMI handshakes
+- ✅ Prevents audio dropout when switching to the same input
+- ✅ Reduces unnecessary load on the display processor
+- ✅ Improves responsiveness by avoiding queue delays from duplicate commands
+
+This is particularly useful in systems with routing fabric (NVX, codec sharing) that may execute the same route multiple times, and in scenarios where the display is already on the target input from a previous operation.
+
+## Changelog
+
+### v2.3.0 (Unreleased)
+- **feat:** Input state-aware switching to prevent redundant input selection commands
+- **fix:** Query input state on initialization to ensure feedback is available immediately
+- Eliminates video flicker and audio dropout from duplicate HDMI commands
