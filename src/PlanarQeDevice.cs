@@ -454,7 +454,17 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				this.LogDebug("SetInput: port.key-'{0}', port.Selector-'{1}', port.ConnectionType-'{2}', port.FeedbackMatchObject-'{3}'",
 					port.Key, port.Selector, port.ConnectionType, port.FeedbackMatchObject);
 
-				ExecuteSwitch(port.Selector);
+				// Only execute switch if input is unknown or different from current
+				if (CurrentInputPort == null || CurrentInputPort.Key != port.Key)
+				{
+					this.LogDebug("SetInput: Executing switch to '{0}' (current: '{1}')", 
+						port.Key, CurrentInputPort?.Key ?? "unknown");
+					ExecuteSwitch(port.Selector);
+				}
+				else
+				{
+					this.LogDebug("SetInput: Input '{0}' already selected, skipping command", port.Key);
+				}
 			}
 
 		}
