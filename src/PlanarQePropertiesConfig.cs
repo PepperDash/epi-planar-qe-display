@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json;
+﻿using System.Collections.Generic;
+using Newtonsoft.Json;
 
 namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 {
@@ -28,5 +29,20 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		/// </summary>
 		[JsonProperty("supportsUsb")]
 		public bool SupportsUsb { get; set; }
+
+		/// <summary>
+		/// Optional list of inputs to expose. If omitted, all default inputs are used.
+		/// </summary>
+		[JsonProperty("activeInputs")]
+		public List<PlanarQeInputConfig> ActiveInputs { get; set; }
+	}
+
+	public class PlanarQeInputConfig
+	{
+		[JsonProperty("key")]
+		public string Key { get; set; }
+
+		[JsonProperty("name")]
+		public string Name { get; set; }
 	}
 }
