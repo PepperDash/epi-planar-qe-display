@@ -674,6 +674,24 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				var items = new Dictionary<string, ISelectableItem>();
 				foreach (var inputConfig in props.ActiveInputs)
 				{
+					if (inputConfig == null)
+					{
+						this.LogWarning("InitializeInputs: encountered null active input configuration entry");
+						continue;
+					}
+
+					if (string.IsNullOrWhiteSpace(inputConfig.Key))
+					{
+						this.LogWarning("InitializeInputs: skipping active input with missing or empty key");
+						continue;
+					}
+
+					if (string.IsNullOrWhiteSpace(inputConfig.Name))
+					{
+						this.LogWarning("InitializeInputs: skipping active input '{0}' with missing or empty name", inputConfig.Key);
+						continue;
+					}
+
 					if (!allInputs.TryGetValue(inputConfig.Key, out var action))
 					{
 						this.LogWarning("InitializeInputs: input key '{0}' is not a recognized input", inputConfig.Key);
