@@ -550,33 +550,36 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 		private void HandlePendingInputTimeout(CTimer timeoutTimer)
 		{
-			RoutingInputPort pendingPort;
+			RoutingInputPort pendingPort = null;
+			var shouldExecute = false;
 
 			lock (_pendingInputLock)
 			{
-				if (!ReferenceEquals(_pendingInputTimeoutTimer, timeoutTimer))
+				if (ReferenceEquals(_pendingInputTimeoutTimer, timeoutTimer))
 				{
-					return;
+					pendingPort = _pendingInputPort;
+					if (pendingPort != null)
+					{
+						var elapsed = CrestronEnvironment.TickCount - _pendingInputPortTimestamp;
+						if (elapsed > PENDING_INPUT_TIMEOUT_MS)
+						{
+							_pendingInputPort = null;
+							_pendingInputPortTimestamp = 0;
+							_pendingInputTimeoutTimer = null;
+							shouldExecute = true;
+						}
+					}
 				}
-
-				pendingPort = _pendingInputPort;
-				if (pendingPort == null)
-				{
-					return;
-				}
-
-				var elapsed = CrestronEnvironment.TickCount - _pendingInputPortTimestamp;
-				if (elapsed <= PENDING_INPUT_TIMEOUT_MS)
-				{
-					return;
-				}
-
-				_pendingInputPort = null;
-				_pendingInputPortTimestamp = 0;
-				_pendingInputTimeoutTimer = null;
 			}
 
-			this.LogWarning("SENT SWITCH DISPLAY INPUT [TIMEOUT FALLBACK] - No input feedback received in 2000ms, executing pending input '{0}'", pendingPort.Key);
+			DisposePendingInputTimer(timeoutTimer);
+
+			if (!shouldExecute)
+			{
+				return;
+			}
+
+			this.LogWarning("SENT SWITCH DISPLAY INPUT [TIMEOUT FALLBACK] - No input feedback received in {0}ms, executing pending input '{1}'", PENDING_INPUT_TIMEOUT_MS, pendingPort.Key);
 			ExecuteSwitchImmediate(pendingPort.Selector);
 		}
 
