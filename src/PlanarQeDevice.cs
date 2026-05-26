@@ -365,15 +365,6 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				return;
 			}
 
-			// Check for stale pending request first so we don't block routing when feedback is lost
-			if (_pendingInputPort != null && IsInputQueryTimeout())
-			{
-				this.LogWarning("SENT SWITCH DISPLAY INPUT [TIMEOUT FALLBACK] - No input feedback received in 2000ms, executing pending input '{0}'", _pendingInputPort.Key);
-				var timedOutPort = _pendingInputPort;
-				_pendingInputPort = null;
-				ExecuteSwitchImmediate(timedOutPort.Selector);
-			}
-
 			var requestedPort = GetInputPortForSelector(selector);
 			if (requestedPort == null)
 			{
@@ -462,6 +453,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		private RoutingInputPort _pendingInputPort;
 		private long _pendingInputPortTimestamp;
 		private CTimer _pendingInputTimeoutTimer;
+		private readonly object _pendingInputLock = new object();
 		private const long PENDING_INPUT_TIMEOUT_MS = 2000;  // 2-second timeout to guard against lost responses
 
 		public new RoutingInputPort CurrentInputPort
@@ -505,15 +497,6 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 				this.LogInformation("SetInput: value-'{0}'", value);
 
-				// Check if there's a stale pending request that timed out
-				if (_pendingInputPort != null && IsInputQueryTimeout())
-				{
-					this.LogWarning("SENT SWITCH DISPLAY INPUT [TIMEOUT FALLBACK] - No input feedback received in 2000ms, executing pending input '{0}'", _pendingInputPort.Key);
-					var timedOutPort = _pendingInputPort;
-					_pendingInputPort = null;
-					ExecuteSwitchImmediate(timedOutPort.Selector);
-				}
-
 				// -1 to get actual input in list after 0d check
 				var port = GetInputPort(value - 1);
 				if (port == null)
@@ -536,38 +519,65 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 		private void QueuePendingInput(RoutingInputPort port)
 		{
-			CancelPendingInputTimeout();
-			_pendingInputPort = port;
-			_pendingInputPortTimestamp = CrestronEnvironment.TickCount;
-			_pendingInputTimeoutTimer = new CTimer(o => HandlePendingInputTimeout(), PENDING_INPUT_TIMEOUT_MS);
+			CTimer timerToDispose;
+
+			lock (_pendingInputLock)
+			{
+				CTimer timeoutTimer = null;
+				timerToDispose = _pendingInputTimeoutTimer;
+				_pendingInputPort = port;
+				_pendingInputPortTimestamp = CrestronEnvironment.TickCount;
+				timeoutTimer = new CTimer(o => HandlePendingInputTimeout(timeoutTimer), PENDING_INPUT_TIMEOUT_MS);
+				_pendingInputTimeoutTimer = timeoutTimer;
+			}
+
+			DisposePendingInputTimer(timerToDispose);
 		}
 
-		private void CancelPendingInputTimeout()
+		private void DisposePendingInputTimer(CTimer timer)
 		{
-			if (_pendingInputTimeoutTimer == null) return;
+			if (timer == null) return;
 
-			_pendingInputTimeoutTimer.Stop();
-			_pendingInputTimeoutTimer.Dispose();
-			_pendingInputTimeoutTimer = null;
+			try
+			{
+				timer.Stop();
+				timer.Dispose();
+			}
+			catch (ObjectDisposedException)
+			{
+			}
 		}
 
-		private void HandlePendingInputTimeout()
+		private void HandlePendingInputTimeout(CTimer timeoutTimer)
 		{
-			if (_pendingInputPort == null || !IsInputQueryTimeout()) return;
+			RoutingInputPort pendingPort;
 
-			var timedOutPort = _pendingInputPort;
-			_pendingInputPort = null;
-			_pendingInputPortTimestamp = 0;
-			CancelPendingInputTimeout();
-			this.LogWarning("SENT SWITCH DISPLAY INPUT [TIMEOUT FALLBACK] - No input feedback received in 2000ms, executing pending input '{0}'", timedOutPort.Key);
-			ExecuteSwitchImmediate(timedOutPort.Selector);
-		}
+			lock (_pendingInputLock)
+			{
+				if (!ReferenceEquals(_pendingInputTimeoutTimer, timeoutTimer))
+				{
+					return;
+				}
 
-		private bool IsInputQueryTimeout()
-		{
-			if (_pendingInputPort == null) return false;
-			long elapsed = CrestronEnvironment.TickCount - _pendingInputPortTimestamp;
-			return elapsed > PENDING_INPUT_TIMEOUT_MS;
+				pendingPort = _pendingInputPort;
+				if (pendingPort == null)
+				{
+					return;
+				}
+
+				var elapsed = CrestronEnvironment.TickCount - _pendingInputPortTimestamp;
+				if (elapsed <= PENDING_INPUT_TIMEOUT_MS)
+				{
+					return;
+				}
+
+				_pendingInputPort = null;
+				_pendingInputPortTimestamp = 0;
+				_pendingInputTimeoutTimer = null;
+			}
+
+			this.LogWarning("SENT SWITCH DISPLAY INPUT [TIMEOUT FALLBACK] - No input feedback received in 2000ms, executing pending input '{0}'", pendingPort.Key);
+			ExecuteSwitchImmediate(pendingPort.Selector);
 		}
 
 		private RoutingInputPort GetInputPort(int input)
@@ -787,9 +797,15 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 			// If no valid input found in response, handle pending request and return
 			if (newInput == null)
 			{
-				if (_pendingInputPort != null)
+				string pendingInputKey;
+				lock (_pendingInputLock)
 				{
-					this.LogInformation("INPUT UNCHANGED UNKNOWN INPUT [UNKNOWN FEEDBACK] - Could not map reported input, keeping pending request '{0}'", _pendingInputPort.Key);
+					pendingInputKey = _pendingInputPort?.Key;
+				}
+
+				if (pendingInputKey != null)
+				{
+					this.LogInformation("INPUT UNCHANGED UNKNOWN INPUT [UNKNOWN FEEDBACK] - Could not map reported input, keeping pending request '{0}'", pendingInputKey);
 				}
 				return;
 			}
@@ -849,22 +865,35 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 			}
 
 			// Now that we know the actual current input, check if we have a pending request
-			if (_pendingInputPort != null)
+			RoutingInputPort pendingPort = null;
+			CTimer pendingTimer = null;
+			bool isStateMatch = false;
+
+			lock (_pendingInputLock)
 			{
-				if (_pendingInputPort.Key.Equals(key, StringComparison.OrdinalIgnoreCase))
+				if (_pendingInputPort != null)
 				{
-					CancelPendingInputTimeout();
-					this.LogInformation("DISPLAY INPUT UNCHANGED [STATE MATCH] - Current equals requested input '{0}'", _pendingInputPort.Key);
+					pendingPort = _pendingInputPort;
+					isStateMatch = pendingPort.Key.Equals(key, StringComparison.OrdinalIgnoreCase);
 					_pendingInputPort = null;
+					_pendingInputPortTimestamp = 0;
+					pendingTimer = _pendingInputTimeoutTimer;
+					_pendingInputTimeoutTimer = null;
 				}
-				else
-				{
-					CancelPendingInputTimeout();
-					this.LogInformation("SENT SWITCH DISPLAY INPUT [STATE CHANGE] - Current '{0}' -> Requested '{1}'", key, _pendingInputPort.Key);
-					var pendingPort = _pendingInputPort;
-					_pendingInputPort = null;
-					ExecuteSwitchImmediate(pendingPort.Selector);
-				}
+			}
+
+			DisposePendingInputTimer(pendingTimer);
+
+			if (pendingPort == null) return;
+
+			if (isStateMatch)
+			{
+				this.LogInformation("DISPLAY INPUT UNCHANGED [STATE MATCH] - Current equals requested input '{0}'", pendingPort.Key);
+			}
+			else
+			{
+				this.LogInformation("SENT SWITCH DISPLAY INPUT [STATE CHANGE] - Current '{0}' -> Requested '{1}'", key, pendingPort.Key);
+				ExecuteSwitchImmediate(pendingPort.Selector);
 			}
 		}
 
