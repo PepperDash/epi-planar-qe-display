@@ -382,8 +382,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				return;
 			}
 
-			_pendingInputPort = requestedPort;
-			_pendingInputPortTimestamp = CrestronEnvironment.TickCount;
+			QueuePendingInput(requestedPort);
 			InputGet();
 		}
 
@@ -462,6 +461,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		private RoutingInputPort _currentInputPort;
 		private RoutingInputPort _pendingInputPort;
 		private long _pendingInputPortTimestamp;
+		private CTimer _pendingInputTimeoutTimer;
 		private const long PENDING_INPUT_TIMEOUT_MS = 2000;  // 2-second timeout to guard against lost responses
 
 		public new RoutingInputPort CurrentInputPort
@@ -527,12 +527,40 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 				// Store the pending request and query current input state
 				// The decision to execute will be made in UpdateInputFb after we know the actual current input
-				_pendingInputPort = port;
-				_pendingInputPortTimestamp = CrestronEnvironment.TickCount;
+				QueuePendingInput(port);
 				this.LogDebug("SetInput: Queuing pending input request for '{0}', querying current state", port.Key);
 				InputGet();
 			}
 
+		}
+
+		private void QueuePendingInput(RoutingInputPort port)
+		{
+			CancelPendingInputTimeout();
+			_pendingInputPort = port;
+			_pendingInputPortTimestamp = CrestronEnvironment.TickCount;
+			_pendingInputTimeoutTimer = new CTimer(o => HandlePendingInputTimeout(), PENDING_INPUT_TIMEOUT_MS);
+		}
+
+		private void CancelPendingInputTimeout()
+		{
+			if (_pendingInputTimeoutTimer == null) return;
+
+			_pendingInputTimeoutTimer.Stop();
+			_pendingInputTimeoutTimer.Dispose();
+			_pendingInputTimeoutTimer = null;
+		}
+
+		private void HandlePendingInputTimeout()
+		{
+			if (_pendingInputPort == null || !IsInputQueryTimeout()) return;
+
+			var timedOutPort = _pendingInputPort;
+			_pendingInputPort = null;
+			_pendingInputPortTimestamp = 0;
+			CancelPendingInputTimeout();
+			this.LogWarning("SENT SWITCH DISPLAY INPUT [TIMEOUT FALLBACK] - No input feedback received in 2000ms, executing pending input '{0}'", timedOutPort.Key);
+			ExecuteSwitchImmediate(timedOutPort.Selector);
 		}
 
 		private bool IsInputQueryTimeout()
@@ -825,11 +853,13 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 			{
 				if (_pendingInputPort.Key.Equals(key, StringComparison.OrdinalIgnoreCase))
 				{
+					CancelPendingInputTimeout();
 					this.LogInformation("DISPLAY INPUT UNCHANGED [STATE MATCH] - Current equals requested input '{0}'", _pendingInputPort.Key);
 					_pendingInputPort = null;
 				}
 				else
 				{
+					CancelPendingInputTimeout();
 					this.LogInformation("SENT SWITCH DISPLAY INPUT [STATE CHANGE] - Current '{0}' -> Requested '{1}'", key, _pendingInputPort.Key);
 					var pendingPort = _pendingInputPort;
 					_pendingInputPort = null;
