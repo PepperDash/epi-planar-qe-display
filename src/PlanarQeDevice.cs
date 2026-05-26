@@ -250,22 +250,33 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 			this.LogDebug("ProcessResponse: {0}", response);
 
-			// Lines containing '=' or '?' are echoes of sent commands; ignore them
-			if (response.Contains("=") || response.Contains("?"))
+			// Query echoes are not useful state updates
+			if (response.Contains("?"))
 			{
 				this.LogVerbose("ProcessResponse: ignoring echo '{0}'", response);
 				return;
 			}
 
-			if (!response.Contains(":") || response.Contains("ERR"))
+			if (response.Contains("ERR"))
 			{
 				this.LogVerbose("ProcessResponse: '{response}' is not tracked", response);
 				return;
 			}
 
-			var responseData = response.ToLower().Split(':');
-			var responseType = string.IsNullOrEmpty(responseData[0]) ? "" : responseData[0];
-			var responseValue = string.IsNullOrEmpty(responseData[1]) ? "" : responseData[1];
+			var delimiterIndex = response.IndexOf(':');
+			if (delimiterIndex < 0)
+			{
+				delimiterIndex = response.IndexOf('=');
+			}
+
+			if (delimiterIndex <= 0 || delimiterIndex >= response.Length - 1)
+			{
+				this.LogVerbose("ProcessResponse: '{response}' is not tracked", response);
+				return;
+			}
+
+			var responseType = response.Substring(0, delimiterIndex).Trim().ToLower();
+			var responseValue = response.Substring(delimiterIndex + 1).Trim().Trim('"').ToLower();
 
 			this.LogVerbose("ProcessResponse: {responseType}, {responseValue}", responseType, responseValue);
 
@@ -354,6 +365,41 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				return;
 			}
 
+			// Check for stale pending request first so we don't block routing when feedback is lost
+			if (_pendingInputPort != null && IsInputQueryTimeout())
+			{
+				this.LogWarning("SENT SWITCH DISPLAY INPUT [TIMEOUT FALLBACK] - No input feedback received in 2000ms, executing pending input '{0}'", _pendingInputPort.Key);
+				var timedOutPort = _pendingInputPort;
+				_pendingInputPort = null;
+				ExecuteSwitchImmediate(timedOutPort.Selector);
+			}
+
+			var requestedPort = GetInputPortForSelector(selector);
+			if (requestedPort == null)
+			{
+				// If we cannot map selector to a known input, preserve existing behavior
+				ExecuteSwitchImmediate(selector);
+				return;
+			}
+
+			_pendingInputPort = requestedPort;
+			_pendingInputPortTimestamp = CrestronEnvironment.TickCount;
+			InputGet();
+		}
+
+		private RoutingInputPort GetInputPortForSelector(object selector)
+		{
+			return InputPorts.FirstOrDefault(p => p.Selector != null && p.Selector.Equals(selector));
+		}
+
+		private void ExecuteSwitchImmediate(object selector)
+		{
+			if (selector is null)
+			{
+				this.LogDebug("ExecuteSwitchImmediate: selector is null (no-op for USB input)");
+				return;
+			}
+
 			if (PowerIsOn)
 			{
 				if (selector is Action action)
@@ -414,6 +460,9 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		public StringFeedback CurrentInputValueFeedback;
 
 		private RoutingInputPort _currentInputPort;
+		private RoutingInputPort _pendingInputPort;
+		private long _pendingInputPortTimestamp;
+		private const long PENDING_INPUT_TIMEOUT_MS = 2000;  // 2-second timeout to guard against lost responses
 
 		public new RoutingInputPort CurrentInputPort
 		{
@@ -456,6 +505,15 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 				this.LogInformation("SetInput: value-'{0}'", value);
 
+				// Check if there's a stale pending request that timed out
+				if (_pendingInputPort != null && IsInputQueryTimeout())
+				{
+					this.LogWarning("SENT SWITCH DISPLAY INPUT [TIMEOUT FALLBACK] - No input feedback received in 2000ms, executing pending input '{0}'", _pendingInputPort.Key);
+					var timedOutPort = _pendingInputPort;
+					_pendingInputPort = null;
+					ExecuteSwitchImmediate(timedOutPort.Selector);
+				}
+
 				// -1 to get actual input in list after 0d check
 				var port = GetInputPort(value - 1);
 				if (port == null)
@@ -467,19 +525,21 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				this.LogDebug("SetInput: port.key-'{0}', port.Selector-'{1}', port.ConnectionType-'{2}', port.FeedbackMatchObject-'{3}'",
 					port.Key, port.Selector, port.ConnectionType, port.FeedbackMatchObject);
 
-				// Only execute switch if input is unknown or different from current
-				if (CurrentInputPort == null || CurrentInputPort.Key != port.Key)
-				{
-					this.LogDebug("SetInput: Executing switch to '{0}' (current: '{1}')", 
-						port.Key, CurrentInputPort?.Key ?? "unknown");
-					ExecuteSwitch(port.Selector);
-				}
-				else
-				{
-					this.LogDebug("SetInput: Input '{0}' already selected, skipping command", port.Key);
-				}
+				// Store the pending request and query current input state
+				// The decision to execute will be made in UpdateInputFb after we know the actual current input
+				_pendingInputPort = port;
+				_pendingInputPortTimestamp = CrestronEnvironment.TickCount;
+				this.LogDebug("SetInput: Queuing pending input request for '{0}', querying current state", port.Key);
+				InputGet();
 			}
 
+		}
+
+		private bool IsInputQueryTimeout()
+		{
+			if (_pendingInputPort == null) return false;
+			long elapsed = CrestronEnvironment.TickCount - _pendingInputPortTimestamp;
+			return elapsed > PENDING_INPUT_TIMEOUT_MS;
 		}
 
 		private RoutingInputPort GetInputPort(int input)
@@ -696,13 +756,15 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 			var newInput = InputPorts.FirstOrDefault(i => i.FeedbackMatchObject != null && i.FeedbackMatchObject.Equals(s.ToLower()));
 
-			if (newInput == null) return;
-			if (newInput == CurrentInputPort)
+			// If no valid input found in response, handle pending request and return
+			if (newInput == null)
 			{
-				this.LogDebug("UpdateInputFb: CurrentInputPort-'{0}' == newInput-'{1}'", CurrentInputPort.Key, newInput.Key);
+				if (_pendingInputPort != null)
+				{
+					this.LogInformation("INPUT UNCHANGED UNKNOWN INPUT [UNKNOWN FEEDBACK] - Could not map reported input, keeping pending request '{0}'", _pendingInputPort.Key);
+				}
 				return;
 			}
-
 			CurrentInputPort = newInput;
 			CurrentInputFeedback.FireUpdate();
 			CurrentInputValueFeedback.FireUpdate();
@@ -756,6 +818,23 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				case "ipcOps":
 					CurrentInputNumber = props.SupportsUsb ? 9 : 8;
 					break;
+			}
+
+			// Now that we know the actual current input, check if we have a pending request
+			if (_pendingInputPort != null)
+			{
+				if (_pendingInputPort.Key.Equals(key, StringComparison.OrdinalIgnoreCase))
+				{
+					this.LogInformation("DISPLAY INPUT UNCHANGED [STATE MATCH] - Current equals requested input '{0}'", _pendingInputPort.Key);
+					_pendingInputPort = null;
+				}
+				else
+				{
+					this.LogInformation("SENT SWITCH DISPLAY INPUT [STATE CHANGE] - Current '{0}' -> Requested '{1}'", key, _pendingInputPort.Key);
+					var pendingPort = _pendingInputPort;
+					_pendingInputPort = null;
+					ExecuteSwitchImmediate(pendingPort.Selector);
+				}
 			}
 		}
 
