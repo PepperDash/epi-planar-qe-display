@@ -501,7 +501,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		{
 			set
 			{
-				if (value <= 0 || value >= InputPorts.Count) return;
+				if (value <= 0 || value > InputPorts.Count) return;
 
 				this.LogInformation("SetInput: value-'{0}'", value);
 
