@@ -123,9 +123,35 @@ This plugin implements intelligent input switching that prevents redundant comma
 
 This is particularly useful in systems with routing fabric (NVX, codec sharing) that may execute the same route multiple times, and in scenarios where the display is already on the target input from a previous operation.
 
+### Runtime Decision Flow (New)
+- On route/set-input request, the plugin stores the requested input as a pending request.
+- It sends `SOURCE.SELECT?` to verify the current input before issuing a switch command.
+- If current input matches requested input, no switch command is sent.
+- If current input differs, the switch command is sent.
+- If feedback is unavailable past timeout, the pending switch is executed as a fallback.
+
+This behavior is applied in both switching paths:
+- `ExecuteSwitch(...)`
+- `SetInput`
+
+### Operational Logs (New)
+The plugin now emits reason-coded input decision logs:
+
+- `DISPLAY INPUT UNCHANGED [STATE MATCH]`
+- `SENT SWITCH DISPLAY INPUT [STATE CHANGE]`
+- `SENT SWITCH DISPLAY INPUT [TIMEOUT FALLBACK]`
+- `INPUT UNCHANGED UNKNOWN INPUT [UNKNOWN FEEDBACK]`
+
+Source feedback parsing accepts both response formats:
+- `SOURCE.SELECT=<value>`
+- `SOURCE.SELECT:<value>`
+
 ## Changelog
 
 ### v2.3.0 (Unreleased)
 - **feat:** Input state-aware switching to prevent redundant input selection commands
 - **fix:** Query input state on initialization to ensure feedback is available immediately
+- **feat:** Added pending-request decision flow to both `ExecuteSwitch` and `SetInput`
+- **feat:** Added reason-coded logging for state match, state change, timeout fallback, and unknown feedback
+- **fix:** Accept both `SOURCE.SELECT=<value>` and `SOURCE.SELECT:<value>` feedback delimiters
 - Eliminates video flicker and audio dropout from duplicate HDMI commands
