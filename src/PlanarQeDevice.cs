@@ -266,6 +266,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 							_isWarmingUp = true;
 
 							PowerIsOn = true;
+							_displayIsConfirmedOn = false;
 						}
 						else if (responseValue.Equals("powering.down"))
 						{
@@ -273,6 +274,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 							_isCoolingDown = true;
 
 							PowerIsOn = false;
+							_displayIsConfirmedOn = false;
 						}
 						else if (responseValue.Equals("on"))
 						{
@@ -280,6 +282,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 							_isWarmingUp = false;
 
 							PowerIsOn = true;
+							_displayIsConfirmedOn = true;
 						}
 						else if (responseValue.Equals("standby"))
 						{
@@ -287,6 +290,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 							_isWarmingUp = false;
 
 							PowerIsOn = false;
+							_displayIsConfirmedOn = false;
 						}
 						else if (responseValue.Equals("fault"))
 						{
@@ -297,6 +301,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				case "display.power":
 					{
 						PowerIsOn = responseValue.Contains("on");
+						_displayIsConfirmedOn = responseValue.Contains("on");
 						break;
 					}
 				case "source.select":
@@ -331,6 +336,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 		/// <summary>
 		/// Executes a switch, turning on display if necessary.
+		/// Suppresses redundant input commands if display is confirmed on and selector matches current input.
 		/// </summary>
 		/// <param name="selector"></param>
 		public override void ExecuteSwitch(object selector)
@@ -341,10 +347,20 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				return;
 			}
 
+			// Check if display is confirmed on and this is the same input selector
+			if (_displayIsConfirmedOn && selector == _currentInputSelector)
+			{
+				// Suppress redundant input command, only send power command
+				this.LogDebug("ExecuteSwitch: suppressing redundant input, display already on with same input");
+				PowerOn();
+				return;
+			}
+
 			if (PowerIsOn)
 			{
 				if (selector is Action action)
 				{
+					_currentInputSelector = selector;
 					action();
 				}
 			}
@@ -359,6 +375,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 					if (selector is Action action)
 					{
+						_currentInputSelector = selector;
 						action();
 					}
 				} // necessary to allow reference inside lambda to handler
@@ -787,6 +804,8 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		private bool _isCoolingDown;
 		private bool _isWarmingUp;
 		private bool _powerIsOn;
+		private bool _displayIsConfirmedOn;
+		private object _currentInputSelector;
 
 
 		/// <summary>
