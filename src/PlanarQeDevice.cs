@@ -145,6 +145,8 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 				CurrentInputNumberFeedback?.FireUpdate();
 
+				CurrentInputValueFeedback?.FireUpdate();
+
 				for (var i = 0; i < InputPorts.Count; i++)
 				{
 					var inputIndex = i;
@@ -229,7 +231,18 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		{
 			if (string.IsNullOrEmpty(response)) return;
 
+			response = response.Trim();
+
+			if (string.IsNullOrEmpty(response)) return;
+
 			this.LogDebug("ProcessResponse: {0}", response);
+
+			// Lines containing '=' or '?' are echoes of sent commands; ignore them
+			if (response.Contains("=") || response.Contains("?"))
+			{
+				this.LogVerbose("ProcessResponse: ignoring echo '{0}'", response);
+				return;
+			}
 
 			if (!response.Contains(":") || response.Contains("ERR"))
 			{
@@ -253,6 +266,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 							_isWarmingUp = true;
 
 							PowerIsOn = true;
+							_displayIsConfirmedOn = false;
 						}
 						else if (responseValue.Equals("powering.down"))
 						{
@@ -260,6 +274,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 							_isCoolingDown = true;
 
 							PowerIsOn = false;
+							_displayIsConfirmedOn = false;
 						}
 						else if (responseValue.Equals("on"))
 						{
@@ -267,6 +282,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 							_isWarmingUp = false;
 
 							PowerIsOn = true;
+							_displayIsConfirmedOn = true;
 						}
 						else if (responseValue.Equals("standby"))
 						{
@@ -274,6 +290,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 							_isWarmingUp = false;
 
 							PowerIsOn = false;
+							_displayIsConfirmedOn = false;
 						}
 						else if (responseValue.Equals("fault"))
 						{
@@ -284,6 +301,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				case "display.power":
 					{
 						PowerIsOn = responseValue.Contains("on");
+						_displayIsConfirmedOn = responseValue.Contains("on");
 						break;
 					}
 				case "source.select":
@@ -318,14 +336,31 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 		/// <summary>
 		/// Executes a switch, turning on display if necessary.
+		/// Suppresses redundant input commands if display is confirmed on and selector matches current input.
 		/// </summary>
 		/// <param name="selector"></param>
 		public override void ExecuteSwitch(object selector)
 		{
+			if (selector is null)
+			{
+				this.LogDebug("ExecuteSwitch: selector is null (no-op for USB input)");
+				return;
+			}
+
+			// Check if display is confirmed on and this is the same input selector
+			if (_displayIsConfirmedOn && selector == _currentInputSelector)
+			{
+				// Suppress redundant input command, only send power command
+				this.LogDebug("ExecuteSwitch: suppressing redundant input, display already on with same input");
+				PowerOn();
+				return;
+			}
+
 			if (PowerIsOn)
 			{
 				if (selector is Action action)
 				{
+					_currentInputSelector = selector;
 					action();
 				}
 			}
@@ -340,6 +375,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 					if (selector is Action action)
 					{
+						_currentInputSelector = selector;
 						action();
 					}
 				} // necessary to allow reference inside lambda to handler
@@ -376,7 +412,18 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		/// </summary>
 		public IntFeedback CurrentInputNumberFeedback;
 
+		/// <summary>
+		/// Current input value (port key) feedback
+		/// </summary>
+		public StringFeedback CurrentInputValueFeedback;
+
 		private RoutingInputPort _currentInputPort;
+
+		public new RoutingInputPort CurrentInputPort
+		{
+			get { return _currentInputPort; }
+			private set { _currentInputPort = value; }
+		}
 
 		protected override Func<string> CurrentInputFeedbackFunc
 		{
@@ -444,7 +491,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		{
 			if (props.SupportsUsb)
 			{
-				AddRoutingInputPort(new RoutingInputPort("Usb", eRoutingSignalType.UsbInput | eRoutingSignalType.UsbOutput, eRoutingPortConnectionType.UsbC, null, this), null);
+				AddRoutingInputPort(new RoutingInputPort("usb", eRoutingSignalType.UsbInput | eRoutingSignalType.UsbOutput, eRoutingPortConnectionType.UsbC, null, this), "usb");
 			}
 
 			AddRoutingInputPort(
@@ -468,6 +515,14 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 					eRoutingPortConnectionType.DisplayPort, new Action(InputDisplayPort1), this), "dp");
 
 			AddRoutingInputPort(
+				new RoutingInputPort(RoutingPortNames.DisplayPortIn2, eRoutingSignalType.Audio | eRoutingSignalType.Video,
+					eRoutingPortConnectionType.DisplayPort, new Action(InputDisplayPort2), this), "dp.2");
+
+			AddRoutingInputPort(
+				new RoutingInputPort("usbcIn1", eRoutingSignalType.Audio | eRoutingSignalType.Video,
+					eRoutingPortConnectionType.UsbC, new Action(InputUsbC), this), "usbc");
+
+			AddRoutingInputPort(
 				new RoutingInputPort(RoutingPortNames.IpcOps, eRoutingSignalType.Audio | eRoutingSignalType.Video,
 					eRoutingPortConnectionType.None, new Action(InputOps), this), "ops");
 
@@ -478,6 +533,7 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 			for (var i = 0; i < InputPorts.Count; i++)
 			{
 				var input = i + 1;
+				_inputFeedback.Add(false);
 				InputFeedback.Add(new BoolFeedback($"input.{input}", () => CurrentInputNumber == input));
 			}
 
@@ -487,18 +543,56 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				return CurrentInputNumber;
 			});
 
-			Inputs = new PlanarQeInputs
+			CurrentInputValueFeedback = new StringFeedback("currentInputValue", () =>
 			{
-				Items = new Dictionary<string, ISelectableItem>()
+				this.LogDebug("CurrentInputValueFeedback: CurrentInputPort-'{0}'", _currentInputPort?.Key ?? "null");
+				return _currentInputPort?.Key ?? string.Empty;
+			});
+
+			if (props.ActiveInputs != null && props.ActiveInputs.Count > 0)
+			{
+				var allInputs = new Dictionary<string, Action>
 				{
-					{"hdmiIn1", new PlanarQeInput("hdmiIn1", "HDMI 1", InputHdmi1) },
-					{"hdmiIn2", new PlanarQeInput("hdmiIn2", "HDMI 2", InputHdmi2) },
-					{"hdmiIn3", new PlanarQeInput("hdmiIn3", "HDMI 3", InputHdmi3) },
-					{"hdmiIn4", new PlanarQeInput("hdmiIn4", "HDMI 4", InputHdmi4) },
-					{"displayPortIn1", new PlanarQeInput("displayPortIn1", "DisplayPort 1", InputDisplayPort1) },
-					{"ipcOps", new PlanarQeInput("ipcOps", "OPS", InputOps) }
+					{ "usb", () => { } },
+					{ "hdmiIn1", InputHdmi1 },
+					{ "hdmiIn2", InputHdmi2 },
+					{ "hdmiIn3", InputHdmi3 },
+					{ "hdmiIn4", InputHdmi4 },
+					{ "displayPortIn1", InputDisplayPort1 },
+					{ "displayPortIn2", InputDisplayPort2 },
+					{ "usbcIn1", InputUsbC },
+					{ "ipcOps", InputOps },
+				};
+
+				var items = new Dictionary<string, ISelectableItem>();
+				foreach (var inputConfig in props.ActiveInputs)
+				{
+					if (!allInputs.TryGetValue(inputConfig.Key, out var action))
+					{
+						this.LogWarning("InitializeInputs: input key '{0}' is not a recognized input", inputConfig.Key);
+						continue;
+					}
+					items[inputConfig.Key] = new PlanarQeInput(inputConfig.Key, inputConfig.Name, action);
 				}
-			};
+
+				Inputs = new PlanarQeInputs { Items = items };
+			}
+			else
+			{
+				Inputs = new PlanarQeInputs
+				{
+					Items = new Dictionary<string, ISelectableItem>()
+					{
+						{ "usb", new PlanarQeInput("usb", "USB", () => { }) },
+						{ "hdmiIn1", new PlanarQeInput("hdmiIn1", "HDMI 1", InputHdmi1) },
+						{ "hdmiIn2", new PlanarQeInput("hdmiIn2", "HDMI 2", InputHdmi2) },
+						{ "hdmiIn3", new PlanarQeInput("hdmiIn3", "HDMI 3", InputHdmi3) },
+						{ "hdmiIn4", new PlanarQeInput("hdmiIn4", "HDMI 4", InputHdmi4) },
+						{ "displayPortIn1", new PlanarQeInput("displayPortIn1", "DisplayPort 1", InputDisplayPort1) },
+						{ "ipcOps", new PlanarQeInput("ipcOps", "OPS", InputOps) }
+					}
+				};
+			}
 		}
 
 		/// <summary>
@@ -540,6 +634,22 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		public void InputDisplayPort1()
 		{
 			SendText("SOURCE.SELECT=DP");
+		}
+
+		/// <summary>
+		/// Select Display Port 2(id-6)
+		/// </summary>
+		public void InputDisplayPort2()
+		{
+			SendText("SOURCE.SELECT=DP.2");
+		}
+
+		/// <summary>
+		/// Select USB-C (id-7)
+		/// </summary>
+		public void InputUsbC()
+		{
+			SendText("SOURCE.SELECT=USBC");
 		}
 
 		/// <summary>
@@ -589,11 +699,19 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 
 			CurrentInputPort = newInput;
 			CurrentInputFeedback.FireUpdate();
+			CurrentInputValueFeedback.FireUpdate();
 
 			var key = newInput.Key;
 
 			if (Inputs.Items.TryGetValue(key, out var item))
 			{
+				// Clear selection from all other items
+				foreach (var inputItem in Inputs.Items.Values)
+				{
+					inputItem.IsSelected = false;
+				}
+
+				// Set selection on the new item
 				Inputs.CurrentItem = key;
 				item.IsSelected = true;
 			}
@@ -605,23 +723,32 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 			switch (key)
 			{
 				// TODO [ ] verify key names for accuracy
-				case "hdmiIn1":
+				case "usb":
 					CurrentInputNumber = 1;
 					break;
+				case "hdmiIn1":
+					CurrentInputNumber = props.SupportsUsb ? 2 : 1;
+					break;
 				case "hdmiIn2":
-					CurrentInputNumber = 2;
+					CurrentInputNumber = props.SupportsUsb ? 3 : 2;
 					break;
 				case "hdmiIn3":
-					CurrentInputNumber = 3;
+					CurrentInputNumber = props.SupportsUsb ? 4 : 3;
 					break;
 				case "hdmiIn4":
-					CurrentInputNumber = 4;
+					CurrentInputNumber = props.SupportsUsb ? 5 : 4;
 					break;
 				case "displayPortIn1":
-					CurrentInputNumber = 5;
+					CurrentInputNumber = props.SupportsUsb ? 6 : 5;
+					break;
+				case "displayPortIn2":
+					CurrentInputNumber = props.SupportsUsb ? 7 : 6;
+					break;
+				case "usbcIn1":
+					CurrentInputNumber = props.SupportsUsb ? 8 : 7;
 					break;
 				case "ipcOps":
-					CurrentInputNumber = 6;
+					CurrentInputNumber = props.SupportsUsb ? 9 : 8;
 					break;
 			}
 		}
@@ -634,17 +761,29 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		{
 			try
 			{
-				if (_inputFeedback[data])
+				// data is 1-based, convert to 0-based for list access
+				int index = data - 1;
+
+				if (index < 0 || index >= _inputFeedback.Count)
+				{
+					this.LogWarning("UpdateBooleanFeedback: index out of range. data='{0}', index='{1}', count='{2}'", data, index, _inputFeedback.Count);
+					return;
+				}
+
+				if (_inputFeedback[index])
 				{
 					return;
 				}
 
-				for (var i = 1; i < InputPorts.Count + 1; i++)
+				// Clear all feedback
+				for (var i = 0; i < _inputFeedback.Count; i++)
 				{
 					_inputFeedback[i] = false;
 				}
 
-				_inputFeedback[data] = true;
+				// Set the current input
+				_inputFeedback[index] = true;
+
 				foreach (var item in InputFeedback)
 				{
 					var update = item;
@@ -665,6 +804,8 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		private bool _isCoolingDown;
 		private bool _isWarmingUp;
 		private bool _powerIsOn;
+		private bool _displayIsConfirmedOn;
+		private object _currentInputSelector;
 
 
 		/// <summary>
