@@ -193,12 +193,25 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 		{
 			Communication.Connect();
 			CommunicationMonitor.Start();
+
+			// Query current input state on initialization to populate CurrentInputPort quickly
+			// This ensures the state check in SetInput works correctly from the start
+			CrestronEnvironment.Sleep(100);
+			InputGet();
 		}
 
 
 		private void CommunicationMonitor_StatusChange(object sender, MonitorStatusChangeEventArgs args)
 		{
 			CommunicationMonitor.IsOnlineFeedback.FireUpdate();
+
+			// Query current input state when device comes online to populate CurrentInputPort
+			// This ensures the state check in SetInput works correctly immediately after connection
+			if (args.DeviceOnLine && Communication.IsConnected)
+			{
+				this.LogInformation("Device online, querying current input state");
+				InputGet();
+			}
 		}
 
 		private void PortGather_LineReceived(object sender, GenericCommMethodReceiveTextArgs args)
@@ -471,7 +484,17 @@ namespace Pepperdash.Essentials.Plugins.Display.Planar.Qe
 				this.LogDebug("SetInput: port.key-'{0}', port.Selector-'{1}', port.ConnectionType-'{2}', port.FeedbackMatchObject-'{3}'",
 					port.Key, port.Selector, port.ConnectionType, port.FeedbackMatchObject);
 
-				ExecuteSwitch(port.Selector);
+				// Only execute switch if input is unknown or different from current
+				if (CurrentInputPort == null || CurrentInputPort.Key != port.Key)
+				{
+					this.LogDebug("SetInput: Executing switch to '{0}' (current: '{1}')", 
+						port.Key, CurrentInputPort?.Key ?? "unknown");
+					ExecuteSwitch(port.Selector);
+				}
+				else
+				{
+					this.LogDebug("SetInput: Input '{0}' already selected, skipping command", port.Key);
+				}
 			}
 
 		}
